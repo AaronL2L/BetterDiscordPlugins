@@ -1,7 +1,7 @@
 /**
  * @name FriendsSortAssistant
  * @author AaronL2L
- * @version 1.0.0
+ * @version 1.0.1
  * @description Helps you clean up your friends list by suggesting inactive contacts, recent ones, or those with no shared servers. English and French.
  * @invite HdXp7sWRY3
  * @website https://valientebot.xyz
@@ -960,22 +960,25 @@ module.exports = class FriendsSortAssistant {
     }
 
     async openDM(userId) {
-        const PrivateChannelActions = BdApi.Webpack.getByKeys("openPrivateChannel");
-        if (typeof PrivateChannelActions?.openPrivateChannel === "function") {
-            try {
-                // Méthode native de Discord : crée le MP si besoin puis l'ouvre (aucun jeton manipulé)
-                await PrivateChannelActions.openPrivateChannel(userId);
-                return;
-            } catch (e) {
-                console.error("[FriendsSortAssistant] openPrivateChannel failed:", e);
-            }
-        }
-
+        // MP déjà existant : on y va directement, sans rien créer
         try {
             const channelId = this.findDMChannel(userId);
             if (channelId && this.navigateToChannel(channelId)) return;
         } catch (e) {
             console.error("[FriendsSortAssistant] Error in openDM:", e);
+        }
+
+        const PrivateChannelActions = BdApi.Webpack.getByKeys("openPrivateChannel");
+        if (typeof PrivateChannelActions?.openPrivateChannel === "function") {
+            try {
+                // Méthode native de Discord : crée le MP puis l'ouvre (aucun jeton manipulé).
+                // Elle attend { recipientIds } : un identifiant seul donnait une liste vide,
+                // et Discord créait un groupe avec soi-même comme seul membre.
+                await PrivateChannelActions.openPrivateChannel({ recipientIds: [userId] });
+                return;
+            } catch (e) {
+                console.error("[FriendsSortAssistant] openPrivateChannel failed:", e);
+            }
         }
         BdApi.UI.showToast(t("toast.dmFailed"), { type: "error" });
     }
