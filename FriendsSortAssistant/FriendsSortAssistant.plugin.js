@@ -1,7 +1,7 @@
 /**
  * @name FriendsSortAssistant
  * @author AaronL2L
- * @version 1.0.1
+ * @version 1.0.2
  * @description Helps you clean up your friends list by suggesting inactive contacts, recent ones, or those with no shared servers. English and French.
  * @invite HdXp7sWRY3
  * @website https://valientebot.xyz
@@ -13,6 +13,11 @@ const PENDING_DELAY = 5;
 const NO_DM_ONLY = 999999;
 
 const STYLE_ID = "FriendsSortAssistant-styles";
+
+// Stores et modules de Discord : cherchés une seule fois, puis gardés en mémoire
+const found = {};
+const cached = (key, find) => found[key] || (found[key] = find());
+const store = (name) => cached(name, () => BdApi.Webpack.getStore(name));
 
 // ─── Traductions ─────────────────────────────────────────────────────────────
 // Bloc identique dans tous mes plugins. Le texte suit la langue de Discord :
@@ -762,7 +767,7 @@ module.exports = class FriendsSortAssistant {
 
     getFriendIds() {
         try {
-            const RelationshipStore = BdApi.Webpack.getStore("RelationshipStore");
+            const RelationshipStore = store("RelationshipStore");
             if (!RelationshipStore) return [];
 
             const relationships = RelationshipStore.getMutableRelationships();
@@ -788,7 +793,7 @@ module.exports = class FriendsSortAssistant {
 
     getFriendshipDurationDays(userId) {
         try {
-            const RelationshipStore = BdApi.Webpack.getStore("RelationshipStore");
+            const RelationshipStore = store("RelationshipStore");
             if (!RelationshipStore) return 0;
             const since = RelationshipStore.getSince(userId);
             if (!since) return 0;
@@ -805,9 +810,9 @@ module.exports = class FriendsSortAssistant {
     // ou null si l'information est indisponible (l'ami n'est alors pas suggéré).
     getLastDMMessageAgeDays(userId) {
         try {
-            const ChannelStore = BdApi.Webpack.getStore("ChannelStore");
-            const MessageStore = BdApi.Webpack.getStore("MessageStore");
-            const ReadStateStore = BdApi.Webpack.getStore("ReadStateStore");
+            const ChannelStore = store("ChannelStore");
+            const MessageStore = store("MessageStore");
+            const ReadStateStore = store("ReadStateStore");
 
             if (!ChannelStore) return null;
 
@@ -830,9 +835,9 @@ module.exports = class FriendsSortAssistant {
 
     getMutualServers(userId) {
         try {
-            const GuildStore = BdApi.Webpack.getStore("GuildStore");
-            const GuildMemberStore = BdApi.Webpack.getStore("GuildMemberStore") || BdApi.Webpack.getStore("MemberStore");
-            const UserProfileStore = BdApi.Webpack.getStore("UserProfileStore");
+            const GuildStore = store("GuildStore");
+            const GuildMemberStore = store("GuildMemberStore") || store("MemberStore");
+            const UserProfileStore = store("UserProfileStore");
 
             if (!GuildStore) return [];
 
@@ -867,9 +872,9 @@ module.exports = class FriendsSortAssistant {
 
     getSuggestions(filters) {
         try {
-            const UserStore = BdApi.Webpack.getStore("UserStore");
-            const RelationshipStore = BdApi.Webpack.getStore("RelationshipStore");
-            const PresenceStore = BdApi.Webpack.getStore("PresenceStore");
+            const UserStore = store("UserStore");
+            const RelationshipStore = store("RelationshipStore");
+            const PresenceStore = store("PresenceStore");
 
             if (!UserStore || !RelationshipStore) return [];
 
@@ -928,7 +933,7 @@ module.exports = class FriendsSortAssistant {
     }
 
     findDMChannel(userId) {
-        const ChannelStore = BdApi.Webpack.getStore("ChannelStore");
+        const ChannelStore = store("ChannelStore");
         if (!ChannelStore) return null;
 
         const id = ChannelStore.getDMFromUserId(userId);
@@ -946,12 +951,12 @@ module.exports = class FriendsSortAssistant {
     }
 
     navigateToChannel(channelId) {
-        const transitionTo = BdApi.Webpack.getModule(BdApi.Webpack.Filters.byStrings("transitionTo - Transitioning to"), { searchExports: true });
+        const transitionTo = cached("transitionTo", () => BdApi.Webpack.getModule(BdApi.Webpack.Filters.byStrings("transitionTo - Transitioning to"), { searchExports: true }));
         if (typeof transitionTo === "function") {
             transitionTo(`/channels/@me/${channelId}`);
             return true;
         }
-        const Dispatcher = BdApi.Webpack.getByKeys("dispatch", "subscribe");
+        const Dispatcher = cached("Dispatcher", () => BdApi.Webpack.getByKeys("dispatch", "subscribe"));
         if (Dispatcher) {
             Dispatcher.dispatch({ type: "CHANNEL_SELECT", guildId: null, channelId });
             return true;
@@ -968,7 +973,7 @@ module.exports = class FriendsSortAssistant {
             console.error("[FriendsSortAssistant] Error in openDM:", e);
         }
 
-        const PrivateChannelActions = BdApi.Webpack.getByKeys("openPrivateChannel");
+        const PrivateChannelActions = cached("PrivateChannelActions", () => BdApi.Webpack.getByKeys("openPrivateChannel"));
         if (typeof PrivateChannelActions?.openPrivateChannel === "function") {
             try {
                 // Méthode native de Discord : crée le MP puis l'ouvre (aucun jeton manipulé).

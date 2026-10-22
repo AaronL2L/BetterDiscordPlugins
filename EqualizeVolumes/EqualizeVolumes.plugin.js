@@ -1,7 +1,7 @@
 /**
  * @name EqualizeVolumes
  * @author AaronL2L
- * @version 1.0.0
+ * @version 1.0.1
  * @description Right-click a user → "Equalize everyone's volume": one level for the whole voice channel (slider or typed value), with an optional auto mode for newcomers. English and French.
  * @invite HdXp7sWRY3
  * @website https://valientebot.xyz
@@ -13,6 +13,11 @@ const DATA_KEY = "EqualizeVolumes";
 const STYLE_ID = "EqualizeVolumes-styles";
 const PRESETS = [25, 50, 75, 100];
 const DEFAULT_API_VOLUME = 100; // volume d'origine de Discord pour chaque personne
+
+// Stores et modules de Discord : cherchés une seule fois, puis gardés en mémoire
+const found = {};
+const cached = (key, find) => found[key] || (found[key] = find());
+const store = (name) => cached(name, () => BdApi.Webpack.getStore(name));
 
 const escapeHtml = (str) => String(str ?? "")
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -467,7 +472,7 @@ module.exports = class EqualizeVolumes {
         this.Dispatcher?.subscribe("VOICE_STATE_UPDATES", this.onVoiceStates);
 
         // Déjà en vocal quand le plugin démarre (réactivation, rechargement…)
-        this.myChannelId = BdApi.Webpack.getStore("SelectedChannelStore")?.getVoiceChannelId?.() ?? null;
+        this.myChannelId = store("SelectedChannelStore")?.getVoiceChannelId?.() ?? null;
         if (this.settings.autoMode) this.autoEqualizeMyChannel({ toast: true });
     }
 
@@ -535,23 +540,23 @@ module.exports = class EqualizeVolumes {
     }
 
     getMyId() {
-        return BdApi.Webpack.getStore("UserStore")?.getCurrentUser()?.id ?? null;
+        return store("UserStore")?.getCurrentUser()?.id ?? null;
     }
 
     getDisplayName(userId) {
-        const user = BdApi.Webpack.getStore("UserStore")?.getUser?.(userId);
+        const user = store("UserStore")?.getUser?.(userId);
         return user?.globalName || user?.username || this.settings.excluded.get(userId) || userId;
     }
 
     getAudioActions() {
-        return BdApi.Webpack.getByKeys("setLocalVolume", "toggleSelfDeaf") ??
-            BdApi.Webpack.getByKeys("setLocalVolume");
+        return cached("audioActions", () => BdApi.Webpack.getByKeys("setLocalVolume", "toggleSelfDeaf") ??
+            BdApi.Webpack.getByKeys("setLocalVolume"));
     }
 
     // ─── Salons vocaux ───────────────────────────────────────────────────────
     getUserChannelId(userId) {
         try {
-            const VoiceStateStore = BdApi.Webpack.getStore("VoiceStateStore");
+            const VoiceStateStore = store("VoiceStateStore");
             if (typeof VoiceStateStore?.getVoiceStateForUser === "function") {
                 return VoiceStateStore.getVoiceStateForUser(userId)?.channelId ?? null;
             }
@@ -569,7 +574,7 @@ module.exports = class EqualizeVolumes {
     getChannelMembers(channelId) {
         if (!channelId) return [];
         try {
-            const VoiceStateStore = BdApi.Webpack.getStore("VoiceStateStore");
+            const VoiceStateStore = store("VoiceStateStore");
             const myId = this.getMyId();
             let ids = [];
 
@@ -599,7 +604,7 @@ module.exports = class EqualizeVolumes {
         try {
             const channelId = this.getUserChannelId(userId);
             if (!channelId) return null;
-            return BdApi.Webpack.getStore("ChannelStore")?.getChannel?.(channelId)?.name ?? null;
+            return store("ChannelStore")?.getChannel?.(channelId)?.name ?? null;
         } catch(e) {
             return null;
         }
@@ -684,7 +689,7 @@ module.exports = class EqualizeVolumes {
         if (!this.settings.autoMode || userIds.length === 0) return;
         try {
             const MediaEngineActions = this.getAudioActions();
-            const MediaEngineStore = BdApi.Webpack.getStore("MediaEngineStore");
+            const MediaEngineStore = store("MediaEngineStore");
             // Sans lecture du volume actuel, impossible de savoir qui a été réglé à la main
             if (!MediaEngineActions?.setLocalVolume || typeof MediaEngineStore?.getLocalVolume !== "function") return;
 
@@ -982,7 +987,7 @@ module.exports = class EqualizeVolumes {
                 excludedBox.innerHTML = `<p class="eqv-hint">${t("settings.excludedEmpty")}</p>`;
                 return;
             }
-            const UserStore = BdApi.Webpack.getStore("UserStore");
+            const UserStore = store("UserStore");
             excludedBox.innerHTML = `<div class="eqv-people">${ids.map(id => {
                 const avatar = UserStore?.getUser?.(id)?.getAvatarURL?.(null, 64);
                 return `
