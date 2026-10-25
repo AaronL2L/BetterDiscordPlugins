@@ -1,7 +1,7 @@
 /**
  * @name BetterDMs
  * @author AaronL2L
- * @version 1.0.0
+ * @version 1.1.0
  * @description Shows the last message of each conversation in your DM list, like on mobile: who wrote it, when, and who is typing. English and French.
  * @invite HdXp7sWRY3
  * @website https://valientebot.xyz
@@ -18,6 +18,8 @@ const DEFAULTS = { showLastMessage: true, preferActivity: false, showTime: true,
 const PREVIEWS_URL = "/channels/preload-messages";
 const BATCH_SIZE = 30;
 const FETCH_DELAY = 100;
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 5000;
 const DISCORD_EPOCH = 1420070400000n;
 const VOICE_MESSAGE_FLAG = 1 << 13;
 const MessageTypes = { RECIPIENT_ADD: 1, RECIPIENT_REMOVE: 2, CALL: 3, CHANNEL_NAME_CHANGE: 4, CHANNEL_ICON_CHANGE: 5, CHANNEL_PINNED_MESSAGE: 6 };
@@ -421,13 +423,13 @@ const discordKitCSS = (p) => `
 `;
 
 const PLUGIN_CSS = `
-.bdm-preview { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; font-weight: 500; line-height: 16px; }
+.bdm-preview { display: flex; align-items: center; gap: 6px; box-sizing: border-box; width: 100%; min-width: 0; padding-right: 4px; font-size: 12px; font-weight: 500; line-height: 16px; }
 .bdm-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bdm-text .emoji { width: 1.25em; height: 1.25em; vertical-align: -.3em; }
 .bdm-author { font-weight: 600; }
-.bdm-label { font-style: italic; }
+.bdm-system { font-style: italic; }
 .bdm-unread .bdm-text { color: var(--text-default, var(--text-normal, #dbdee1)); font-weight: 600; }
-.bdm-time { flex: 0 0 auto; font-size: 11px; opacity: .8; }
+.bdm-time { flex: 0 0 auto; white-space: nowrap; font-size: 11px; opacity: .8; }
 .bdm-unread .bdm-time { color: var(--text-default, var(--text-normal, #dbdee1)); opacity: 1; }
 li:hover .bdm-time, li:focus-within .bdm-time { visibility: hidden; }
 .bdm-settings { display: flex; flex-direction: column; gap: 16px; }
@@ -451,6 +453,11 @@ const getRestAPI = () => cached("rest", () => BdApi.Webpack.getModule(
     m => typeof m === "object" && typeof m?.get === "function" && typeof m?.post === "function" && typeof m?.del === "function",
     { searchExports: true }
 ));
+// Le répartiteur d'actions de Discord : chaque magasin en garde une référence
+const getDispatcher = () => cached("dispatcher", () => {
+    const dispatcher = store("UserStore")?._dispatcher ?? BdApi.Webpack.getByKeys("dispatch", "subscribe");
+    return typeof dispatcher?.dispatch === "function" && typeof dispatcher.subscribe === "function" ? dispatcher : null;
+});
 const getUseStateFromStores = () => cached("useStateFromStores", () => BdApi.Hooks?.useStateFromStores
     ?? BdApi.Webpack.getModule(BdApi.Webpack.Filters.byStrings("useStateFromStores"), { searchExports: true }));
 // Moteur de mise en forme des messages (celui des réponses : emojis, mentions, spoilers…)
@@ -459,6 +466,8 @@ const getMarkup = () => cached("markup", () => {
     return mod && Object.values(mod).find(f => typeof f === "function" && String(f).includes("parseInlineReply"));
 });
 
+// Discord attend d'être connecté pour demander ses aperçus ; inconnu = connecté
+const isConnected = () => store("GatewayConnectionStore")?.isConnected?.() !== false;
 const getLocale = () => store("LocaleStore")?.locale || document.documentElement.lang || undefined;
 const messageTime = (id) => Number((BigInt(id) >> 22n) + DISCORD_EPOCH);
 
@@ -549,6 +558,22 @@ const describeMessage = (message, channel) => {
 };
 const SYSTEM_TYPES = new Set(Object.values(MessageTypes));
 
+// Quand la liste est plus étroite que ses lignes, la fin de la ligne passe sous le bord :
+// on rentre l'aperçu d'autant pour que l'heure reste entière.
+function fitLine(el) {
+    if (!el?.isConnected) return;
+    const { right, width } = el.getBoundingClientRect();
+    if (!width) return;
+    let edge = Infinity;
+    for (let node = el.parentElement; node && node !== document.body; node = node.parentElement) {
+        const style = getComputedStyle(node);
+        if (style.overflowX === "visible") continue;
+        edge = Math.min(edge, node.getBoundingClientRect().left + node.clientLeft + node.clientWidth);
+        if (style.overflowY === "auto" || style.overflowY === "scroll") break;
+    }
+    el.style.paddingRight = right > edge ? `${Math.ceil(right - edge) + 4}px` : "";
+}
+
 // ─── Ligne sous le nom ───────────────────────────────────────────────────────
 function PreviewLine({ plugin, channel, fallback, isTyping }) {
     const useStateFromStores = getUseStateFromStores();
@@ -577,12 +602,15 @@ function PreviewLine({ plugin, channel, fallback, isTyping }) {
         return Object.keys(TypingStore.getTypingUsers?.(channel.id) ?? {}).find(id => id !== me) ?? null;
     }, [channel.id, isGroup, isTyping]);
     useClock();
+    const ref = React.useRef(null);
+    React.useLayoutEffect(() => fitLine(ref.current));
 
+    React.useEffect(() => plugin.track(channel.id), [channel.id]);
     React.useEffect(() => {
         if (settings.showLastMessage) plugin.want(channel.id);
     }, [channel.id, lastId, message?.id, settings.showLastMessage]);
 
-    const line = (className, children, time) => h("div", { className: `bdm-preview${unread ? " bdm-unread" : ""}` },
+    const line = (className, children, time) => h("div", { ref, className: `bdm-preview${unread ? " bdm-unread" : ""}` },
         h("span", { className: `bdm-text${className ? ` ${className}` : ""}` }, children),
         time != null && settings.showTime
             ? h("span", { className: "bdm-time", title: new Date(time).toLocaleString(getLocale()) }, formatTime(time))
@@ -591,13 +619,13 @@ function PreviewLine({ plugin, channel, fallback, isTyping }) {
 
     if (settings.showTyping && isTyping) {
         const typer = typerId ? userName(UserStore?.getUser?.(typerId)) : null;
-        return line("bdm-label", typer ? t("typingName", typer) : t("typing"), null);
+        return line("bdm-system", typer ? t("typingName", typer) : t("typing"), null);
     }
     if (!settings.showLastMessage || !message) return fallback ?? null;
     if (settings.preferActivity && !isGroup && fallback != null) return fallback;
 
     const time = messageTime(message.id);
-    if (relation) return line("bdm-label", t(relation), time);
+    if (relation) return line("bdm-system", t(relation), time);
 
     const isMine = authorId != null && authorId === UserStore?.getCurrentUser?.()?.id;
     const isSystem = SYSTEM_TYPES.has(message.type);
@@ -620,7 +648,7 @@ function PreviewLine({ plugin, channel, fallback, isTyping }) {
         }
         return line(null, withPrefix(h("span", { key: "b" }, rendered ?? text.replace(/\s+/g, " "))), time);
     }
-    return line("bdm-label", withPrefix(h("span", { key: "b" }, describeMessage(message, channel))), time);
+    return line("bdm-system", withPrefix(h("span", { key: "b" }, describeMessage(message, channel))), time);
 }
 
 module.exports = class BetterDMs {
@@ -630,6 +658,7 @@ module.exports = class BetterDMs {
         this.running = false;
         this.wrappers = new WeakMap();
         this.pending = new Set();
+        this.shown = new Set(); // salons des lignes affichées
         this.requested = new Map(); // salon → dernier message déjà demandé
         this.flushTimer = null;
         this.fetching = false;
@@ -644,14 +673,14 @@ module.exports = class BetterDMs {
 
         const row = getRowModule();
         const stores = ["ReadStateStore", "RelationshipStore", "TypingStore", "UserStore"];
-        if (!row || !getPreviewStore() || !getRestAPI() || !getUseStateFromStores() || !stores.every(store)) {
+        if (!row || !getPreviewStore() || !getRestAPI() || !getDispatcher() || !getUseStateFromStores() || !stores.every(store)) {
             BdApi.UI.showToast(t("toast.missing"), { type: "error" });
             return;
         }
 
-        this.Dispatcher = BdApi.Webpack.getByKeys("dispatch", "subscribe");
-        this.Dispatcher?.subscribe("CONNECTION_OPEN", this.onConnectionOpen);
-        this.Dispatcher?.subscribe("MESSAGE_DELETE", this.onMessageDelete);
+        this.Dispatcher = getDispatcher();
+        this.Dispatcher.subscribe("CONNECTION_OPEN", this.onConnectionOpen);
+        this.Dispatcher.subscribe("MESSAGE_DELETE", this.onMessageDelete);
 
         // La ligne complète renvoie la ligne de base : on remplace celle-ci par
         // une version qui ajoute l'aperçu sous le nom.
@@ -671,6 +700,7 @@ module.exports = class BetterDMs {
         clearTimeout(this.flushTimer);
         this.flushTimer = null;
         this.pending.clear();
+        this.shown.clear();
         this.requested.clear();
         this.refreshList();
         BdApi.DOM.removeStyle(STYLE_ID);
@@ -767,11 +797,19 @@ module.exports = class BetterDMs {
         this.flushTimer = setTimeout(() => this.flush(), FETCH_DELAY);
     }
 
+    // Lignes affichées : à chaque connexion, on redemande leurs aperçus
+    track(channelId) {
+        this.shown.add(channelId);
+        return () => this.shown.delete(channelId);
+    }
+
     async flush() {
         if (this.fetching) return;
         this.fetching = true;
+        let failures = 0;
         try {
-            while (this.running && this.pending.size > 0) {
+            // Hors connexion, la file attend la connexion
+            while (this.running && this.pending.size > 0 && isConnected()) {
                 const ids = [...this.pending].slice(0, BATCH_SIZE);
                 ids.forEach(id => this.pending.delete(id));
                 let messages;
@@ -780,27 +818,39 @@ module.exports = class BetterDMs {
                     if (res?.ok === false) throw res;
                     messages = Array.isArray(res?.body) ? res.body : [];
                 } catch (err) {
-                    if (err?.status === 429 && this.running) {
+                    if (!this.running) break;
+                    const limited = err?.status === 429;
+                    if (limited || ++failures <= MAX_RETRIES) {
                         ids.forEach(id => this.pending.add(id));
-                        await new Promise(r => setTimeout(r, (err.body?.retry_after ?? 2) * 1000 + 500));
+                        await new Promise(r => setTimeout(r, limited ? (err.body?.retry_after ?? 2) * 1000 + 500 : RETRY_DELAY * failures));
                         continue;
                     }
-                    // Échec : ces salons pourront être redemandés plus tard
+                    // Échec : ces salons seront redemandés à la prochaine connexion
                     ids.forEach(id => this.requested.delete(id));
                     console.error("[BetterDMs] previews:", err);
                     break;
                 }
+                failures = 0;
                 if (!this.running) break;
                 this.Dispatcher?.dispatch({ type: "MESSAGE_PREVIEWS_LOADED", guildId: null, messages });
             }
         } finally {
             this.fetching = false;
         }
+        // Une reprise de connexion n'envoie pas toujours CONNECTION_OPEN
+        if (this.running && this.pending.size > 0) {
+            clearTimeout(this.flushTimer);
+            this.flushTimer = setTimeout(() => this.flush(), RETRY_DELAY);
+        }
     }
 
     onConnectionOpen() {
-        // Nouvelle connexion : Discord considère les aperçus comme périmés
+        // Nouvelle connexion : Discord considère les aperçus comme périmés. On
+        // redemande ceux des lignes affichées une fois que ses magasins l'ont
+        // traitée, y compris ceux demandés avant la connexion.
         this.requested.clear();
+        this.pending.clear();
+        setTimeout(() => this.shown.forEach(id => this.want(id)), 0);
     }
 
     onMessageDelete({ channelId }) {
