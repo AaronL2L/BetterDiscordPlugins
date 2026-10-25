@@ -1,7 +1,7 @@
 /**
  * @name BetterDMs
  * @author AaronL2L
- * @version 1.1.0
+ * @version 1.1.1
  * @description Shows the last message of each conversation in your DM list, like on mobile: who wrote it, when, and who is typing. English and French.
  * @invite HdXp7sWRY3
  * @website https://valientebot.xyz
@@ -59,6 +59,7 @@ const t = makeT({
         "blocked": "Blocked message",
         "ignored": "Ignored message",
         "image": (n) => plural(n, "Image", `${n} images`),
+        "gif": (n) => plural(n, "GIF", `${n} GIFs`),
         "video": (n) => plural(n, "Video", `${n} videos`),
         "voice": "Voice message",
         "file": (name, n) => plural(n, `File: ${name}`, `${n} files`),
@@ -98,6 +99,7 @@ const t = makeT({
         "blocked": "Message bloqué",
         "ignored": "Message ignoré",
         "image": (n) => plural(n, "Image", `${n} images`),
+        "gif": (n) => plural(n, "GIF", `${n} GIF`),
         "video": (n) => plural(n, "Vidéo", `${n} vidéos`),
         "voice": "Message vocal",
         "file": (name, n) => plural(n, `Fichier : ${name}`, `${n} fichiers`),
@@ -553,7 +555,12 @@ const describeMessage = (message, channel) => {
         return t("sticker", (message.stickerItems ?? message.sticker_items)[0].name);
     }
     if (message.poll) return t("poll", message.poll.question?.text ?? "");
-    if (message.embeds?.length) return t("embed");
+    // Un lien seul vers un GIF, une image ou une vidéo : Discord n'affiche que l'aperçu
+    const embeds = message.embeds ?? [];
+    if (embeds.length) {
+        const kind = { gifv: "gif", image: "image", video: "video" }[embeds[0].type];
+        return kind && embeds.every(e => e.type === embeds[0].type) ? t(kind, embeds.length) : t("embed");
+    }
     return t("message");
 };
 const SYSTEM_TYPES = new Set(Object.values(MessageTypes));
@@ -646,7 +653,10 @@ function PreviewLine({ plugin, channel, fallback, isTyping }) {
         } catch (e) {
             rendered = null;
         }
-        return line(null, withPrefix(h("span", { key: "b" }, rendered ?? text.replace(/\s+/g, " "))), time);
+        // Rendu vide : le message n'est qu'un lien dont Discord masque le texte (GIF…)
+        if (!(Array.isArray(rendered) && rendered.length === 0)) {
+            return line(null, withPrefix(h("span", { key: "b" }, rendered ?? text.replace(/\s+/g, " "))), time);
+        }
     }
     return line("bdm-system", withPrefix(h("span", { key: "b" }, describeMessage(message, channel))), time);
 }

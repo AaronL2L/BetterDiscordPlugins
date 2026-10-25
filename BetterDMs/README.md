@@ -6,7 +6,7 @@ Shows the last message of each conversation in your DM list, like on mobile: who
 
 Under each name in your DM list:
 - the **last message**, with its emojis and formatting. It starts with **You:** when you wrote it, and with the author's name in a group;
-- a short description for messages without text: **2 images**, **Voice message**, **File: name**, **Missed call**, **Bob left the group**…;
+- a short description for messages without text: **2 images**, **GIF**, **Voice message**, **File: name**, **Missed call**, **Bob left the group**…;
 - the **time** on the right: **now**, **5 min**, the time of day, **Yesterday**, a weekday or a date;
 - **Typing…** while someone is writing (**Bob is typing…** in a group).
 
