@@ -8,6 +8,7 @@
 | [MaskedWords](MaskedWords) | Hides messages that contain words you choose, like a Discord spoiler: click to reveal. Named lists with optional durations, and right-click a text selection to hide it. |
 | [MediaVault](MediaVault) | Find the media, links and files shared in any conversation: a gallery grouped by month, full-screen preview, search and member filter. |
 | [BetterSidebar](BetterSidebar) | Sort and pin your servers, or leave several at once, from a button built into the server list. |
+| [BetterDMs](BetterDMs) | Shows the last message of each conversation in your DM list, like on mobile: who wrote it, when, and who is typing. |
 | [FriendsSortAssistant](FriendsSortAssistant) | Helps you clean up your friends list by suggesting inactive contacts, recent ones, or those with no shared servers. |
 | [MessageScheduler](MessageScheduler) | Schedule messages and set reminders on existing messages. |
 | [DeleteAllMessages](DeleteAllMessages) | Delete your messages in batches, with optional filters and a local backup. |
